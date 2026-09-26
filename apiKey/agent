@@ -1,0 +1,20 @@
+from langchain_core.tools import tool
+from langgraph.runtime import get_runtime
+from langchain.agents import create_agent
+from dataclasses import dataclass
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+GOOGLE_API_KEY = "your_actual_api_key_here"
+
+chatbot = ChatGoogleGenerativeAI(model="gemini-3.8-flash")
+chatbot.api_key = GOOGLE_API_KEY
+
+runtime = get_runtime()
+agent = create_agent(chatbot, runtime)
+@dataclass
+class AgentConfig:
+    chatbot: ChatGoogleGenerativeAI
+    runtime: any
+    agent: any
+
+config = AgentConfig(chatbot=chatbot, runtime=runtime, agent=agent)
