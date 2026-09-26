@@ -1,20 +1,43 @@
+
+
 from langchain_core.tools import tool
 from langgraph.runtime import get_runtime
 from langchain.agents import create_agent
 from dataclasses import dataclass
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-GOOGLE_API_KEY = "your_actual_api_key_here"
+
+systemFile = open("MainBrain.system", "r+")
+system = systemFile.read()
+systemFile.close()
+time.sleep(1.2)
+@dataclass
+class RuntimeContext:
+    zmqInstance: socket
+
+
 
 chatbot = ChatGoogleGenerativeAI(model="gemini-3.8-flash")
 chatbot.api_key = GOOGLE_API_KEY
 
+# need frontend tools for the agent to interact with the environment
+tools = [suggestion, rating, drive]
+
 runtime = get_runtime()
-agent = create_agent(chatbot, runtime)
+agent = create_agent(model=chatbot, tools=tools, system_prompt=system)
 @dataclass
+
 class AgentConfig:
     chatbot: ChatGoogleGenerativeAI
     runtime: any
     agent: any
 
 config = AgentConfig(chatbot=chatbot, runtime=runtime, agent=agent)
+
+while True:
+    question = input("Enter your action: ")
+    for step in agent.stream(question):
+        {"messages": question},
+        context=RuntimeContext(zmqInstance = socket), stream_mode="values"
+        step["messages"][-1].pretty_print()
+
