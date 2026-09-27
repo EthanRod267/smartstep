@@ -1,0 +1,457 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from datetime import datetime, timezone
+from pymongo import MongoClient
+from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
+import os
+
+load_dotenv()
+
+MONGODB_URI = os.getenv("MONGODB_URI")
+
+client = MongoClient(MONGODB_URI)
+
+db = client["smartshoe"]
+sensor_collection = db["sensor_data"]
+
+app = FastAPI(title="Smart Shoe API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class ShoeData(BaseModel):
+    device_id: str
+    BoF: float
+    Heel: float
+    GyroX: float
+    GyroY: float
+    GyroZ: float
+    AccelX: float
+    AccelY: float
+    AccelZ: float
+
+
+@app.get("/")
+def home():
+    return {"status": "Smart Shoe API is running"}
+
+
+@app.get("/database-test")
+def database_test():
+    client.admin.command("ping")
+    return {"status": "MongoDB connected"}
+
+
+@app.post("/sensor-data")
+def sensor_data(data: ShoeData):
+
+    document = {
+    "device_id": data.device_id,
+    "BoF": data.BoF,
+    "Heel": data.Heel,
+    "GyroX": data.GyroX,
+    "GyroY": data.GyroY,
+    "GyroZ": data.GyroZ,
+    "AccelX": data.AccelX,
+    "AccelY": data.AccelY,
+    "AccelZ": data.AccelZ,
+    "timestamp": datetime.now(timezone.utc)
+}
+
+    result = sensor_collection.insert_one(document)
+
+    return {
+        "status": "saved",
+        "device_id": data.device_id,
+        "mongodb_id": str(result.inserted_id)
+    }
+
+
+@app.get("/sensor-data/latest")
+def latest_sensor_data():
+
+    document = sensor_collection.find_one(
+        sort=[("timestamp", -1)]
+    )
+
+    if document is None:
+        return {"message": "No sensor data found"}
+
+    document["_id"] = str(document["_id"])
+
+    return document
+@app.get("/sensor-data/recent")
+def recent_sensor_data(limit: int = 100):
+
+    readings = list(
+        sensor_collection.find()
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+
+    for reading in readings:
+        reading["_id"] = str(reading["_id"])
+
+    readings.reverse()
+
+    return readings
+@app.get("/snowflake-test")
+def snowflake_test():
+    import snowflake.connector
+
+    conn = snowflake.connector.connect(
+        account=os.getenv("SNOWFLAKE_ACCOUNT"),
+        user=os.getenv("SNOWFLAKE_USER"),
+        password=os.getenv("SNOWFLAKE_PASSWORD"),
+        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+        database=os.getenv("SNOWFLAKE_DATABASE"),
+        schema=os.getenv("SNOWFLAKE_SCHEMA")
+    )
+
+    cursor = conn.cursor()
+    cursor.execute("SELECT CURRENT_VERSION()")
+    version = cursor.fetchone()[0]
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "status": "Snowflake connected",
+        "version": version
+    }
+class RunSummary(BaseModel):
+    run_id: str
+    device_id: str
+    duration_seconds: float
+    avg_ch1: float
+    avg_ch2: float
+    max_ch1: float
+    max_ch2: float
+    efficiency_score: float
+    running_type: str
+
+
+@app.post("/run-summary")
+def save_run_summary(data: RunSummary):
+    import snowflake.connector
+
+    conn = snowflake.connector.connect(
+        account=os.getenv("SNOWFLAKE_ACCOUNT"),
+        user=os.getenv("SNOWFLAKE_USER"),
+        password=os.getenv("SNOWFLAKE_PASSWORD"),
+        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+        database=os.getenv("SNOWFLAKE_DATABASE"),
+        schema=os.getenv("SNOWFLAKE_SCHEMA")
+    )
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO RUN_SUMMARIES
+        (
+            RUN_ID,
+            DEVICE_ID,
+            DURATION_SECONDS,
+            AVG_CH1,
+            AVG_CH2,
+            MAX_CH1,
+            MAX_CH2,
+            EFFICIENCY_SCORE,
+            RUNNING_TYPE
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            data.run_id,
+            data.device_id,
+            data.duration_seconds,
+            data.avg_ch1,
+            data.avg_ch2,
+            data.max_ch1,
+            data.max_ch2,
+            data.efficiency_score,
+            data.running_type
+        )
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {
+        "status": "saved to Snowflake",
+        "run_id": data.run_id
+    }
+@app.get("/calculate-summary")
+def calculate_summary():
+
+    readings = list(sensor_collection.find())
+
+    if not readings:
+        return {"message": "No sensor data found"}
+
+    ch1_values = [r["CH1"] for r in readings]
+    ch2_values = [r["CH2"] for r in readings]
+
+    return {
+        "number_of_readings": len(readings),
+        "avg_ch1": sum(ch1_values) / len(ch1_values),
+        "avg_ch2": sum(ch2_values) / len(ch2_values),
+        "max_ch1": max(ch1_values),
+        "max_ch2": max(ch2_values)
+    }
+@app.get("/gemini-test")
+def gemini_test():
+    from google import genai
+
+    gemini = genai.Client(
+        api_key=os.getenv("GEMINI_API_KEY")
+    )
+
+    response = gemini.models.generate_content(
+        model="gemini-3.8-flash",
+        contents="""
+        You are a Smart Shoe running assistant.
+
+        This is TEST DATA:
+        Average CH1: 50.27
+        Average CH2: 94.47
+        Maximum CH1: 100
+        Maximum CH2: 200
+
+        Give the user one short sentence explaining that
+        these are test sensor readings and should not yet
+        be interpreted as real running performance.
+        """
+    )
+
+    return {
+        "status": "Gemini connected",
+        "analysis": response.text
+    }
+@app.get("/smart-analysis")
+def smart_analysis():
+    from google import genai
+
+    readings = list(sensor_collection.find())
+
+    if not readings:
+        return {"message": "No sensor data found"}
+
+    ch1_values = [r["CH1"] for r in readings]
+    ch2_values = [r["CH2"] for r in readings]
+
+    avg_ch1 = sum(ch1_values) / len(ch1_values)
+    avg_ch2 = sum(ch2_values) / len(ch2_values)
+    max_ch1 = max(ch1_values)
+    max_ch2 = max(ch2_values)
+
+    gemini = genai.Client(
+        api_key=os.getenv("GEMINI_API_KEY")
+    )
+
+    prompt = f"""
+    You are the AI assistant for a Smart Shoe project.
+
+    These measurements came from our MongoDB sensor database.
+
+    Number of readings: {len(readings)}
+    Average CH1: {avg_ch1:.2f}
+    Average CH2: {avg_ch2:.2f}
+    Maximum CH1: {max_ch1:.2f}
+    Maximum CH2: {max_ch2:.2f}
+
+    CH1 and CH2 are experimental pressure sensor channels.
+
+    Do not diagnose medical conditions.
+    Do not invent what CH1 or CH2 physically means.
+
+    Give a very short summary of the data.
+    """
+
+    response = gemini.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt
+    )
+
+    return {
+        "number_of_readings": len(readings),
+        "avg_ch1": round(avg_ch1, 2),
+        "avg_ch2": round(avg_ch2, 2),
+        "max_ch1": max_ch1,
+        "max_ch2": max_ch2,
+        "ai_feedback": response.text
+    }
+@app.post("/finish-session")
+def finish_session():
+    import snowflake.connector
+    import uuid
+
+    readings = list(sensor_collection.find())
+
+    if not readings:
+        return {"message": "No sensor data found"}
+
+    # Calculate session results
+    bof_values = [r["BoF"] for r in readings if "BoF" in r]
+    heel_values = [r["Heel"] for r in readings if "Heel" in r]
+
+    if not bof_values or not heel_values:
+        return {"message": "No new 8-sensor readings found"}
+
+    avg_bof = sum(bof_values) / len(bof_values)
+    avg_heel = sum(heel_values) / len(heel_values)
+
+    max_bof = max(bof_values)
+    max_heel = max(heel_values)
+
+    # Automatically create a session ID
+    session_id = "RUN-" + str(uuid.uuid4())[:8].upper()
+
+    # GEMINI AI ANALYSIS
+    from google import genai
+
+    gemini = genai.Client(
+        api_key=os.getenv("GEMINI_API_KEY")
+    )
+
+    prompt = f"""
+You are the AI assistant for a Smart Shoe project.
+
+Completed running session:
+
+Number of readings: {len(bof_values)}
+Average ball-of-foot pressure: {avg_bof:.2f}
+Average heel pressure: {avg_heel:.2f}
+Maximum ball-of-foot pressure: {max_bof:.2f}
+Maximum heel pressure: {max_heel:.2f}
+
+BoF is the ball-of-foot pressure sensor.
+Heel is the heel pressure sensor.
+
+Do not diagnose medical conditions.
+
+Give the runner a short, easy-to-understand summary
+of the session and one useful observation.
+"""
+
+    response = gemini.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt
+    )
+
+    ai_feedback = response.text
+
+
+    # SAVE SESSION + GEMINI FEEDBACK TO SNOWFLAKE
+    conn = snowflake.connector.connect(
+        account=os.getenv("SNOWFLAKE_ACCOUNT"),
+        user=os.getenv("SNOWFLAKE_USER"),
+        password=os.getenv("SNOWFLAKE_PASSWORD"),
+        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+        database=os.getenv("SNOWFLAKE_DATABASE"),
+        schema=os.getenv("SNOWFLAKE_SCHEMA")
+    )
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO RUN_SUMMARIES
+        (
+            RUN_ID,
+            DEVICE_ID,
+            AVG_BOF,
+            AVG_HEEL,
+            MAX_BOF,
+            MAX_HEEL,
+            AI_FEEDBACK
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            session_id,
+            "SHOE-R-001",
+            avg_bof,
+            avg_heel,
+            max_bof,
+            max_heel,
+            ai_feedback
+        )
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {
+        "status": "Session finished",
+        "run_id": session_id,
+        "number_of_readings": len(readings),
+        "avg_bof": round(avg_bof, 2),
+        "avg_heel": round(avg_heel, 2),
+        "max_bof": max_bof,
+        "max_heel": max_heel,
+        "snowflake": "saved",
+        "ai_feedback": ai_feedback
+    }
+@app.get("/snowflake/latest-run")
+def snowflake_latest_run():
+    import os
+    import requests
+    from snowflake_jwt import get_snowflake_jwt
+
+    account = os.getenv("SNOWFLAKE_ACCOUNT")
+
+    url = f"https://{account}.snowflakecomputing.com/api/v2/statements"
+
+    headers = {
+        "Authorization": f"Bearer {get_snowflake_jwt()}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Snowflake-Authorization-Token-Type": "KEYPAIR_JWT"
+    }
+
+    body = {
+        "statement": """
+            SELECT
+                RUN_ID,
+                DEVICE_ID,
+                CREATED_AT,
+                AVG_BOF,
+                AVG_HEEL,
+                MAX_BOF,
+                MAX_HEEL,
+                AI_FEEDBACK
+            FROM SMARTSHOE.ANALYTICS.RUN_SUMMARIES
+            WHERE AVG_BOF IS NOT NULL
+            ORDER BY CREATED_AT DESC
+            LIMIT 1
+        """,
+        "warehouse": "COMPUTE_WH",
+        "database": "SMARTSHOE",
+        "schema": "ANALYTICS",
+        "timeout": 30
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json=body,
+        timeout=40
+    )
+
+    response.raise_for_status()
+    result = response.json()
+
+    return {
+        "status": "success",
+        "source": "Snowflake SQL REST API",
+        "data": result.get("data", [])
+    }
