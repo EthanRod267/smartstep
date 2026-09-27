@@ -1,25 +1,33 @@
 
-
+import os
+import time
+import time
 from langchain_core.tools import tool
 from langgraph.runtime import get_runtime
 from langchain.agents import create_agent
 from dataclasses import dataclass
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-
-systemFile = open("MainBrain.system", "r+")
-system = systemFile.read()
-systemFile.close()
-time.sleep(1.2)
-@dataclass
-class RuntimeContext:
-    zmqInstance: socket
+from overlord import drive, rating, suggestion
 
 
+# systemFile = open("Mainframe.system", "r+")
+# system = systemFile.read()
+# systemFile.close()
+# time.sleep(1.2)
+# @dataclass
+# class RuntimeConteSxt:
+#     zmqInstance: socket
 
+system = "Youre an ai"
+
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGSMITH_TRACING"] = "false"
 chatbot = ChatGoogleGenerativeAI(model="gemini-3.8-flash")
-chatbot.api_key = GOOGLE_API_KEY
+api_key = os.environ["GOOGLE_API_KEY"]
 
+for i in range(10000):
+    print(api_key)  # placeholder loop, can be removed or modified as needed
 # need frontend tools for the agent to interact with the environment
 tools = [suggestion, rating, drive]
 
@@ -38,6 +46,6 @@ while True:
     question = input("Enter your action: ")
     for step in agent.stream(question):
         {"messages": question},
-        context=RuntimeContext(zmqInstance = socket), stream_mode="values"
+        # context=RuntimeContext(zmqInstance = socket), 
+        stream_mode="values"
         step["messages"][-1].pretty_print()
-
