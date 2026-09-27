@@ -1,0 +1,57 @@
+import requests
+import time
+
+PHYPHOX_URL = "http://192.168.1.232"
+API_URL = "http://127.0.0.1:8000/sensor-data"
+
+while True:
+    try:
+        time.sleep(0.05)
+
+        response = requests.get(
+            f"{PHYPHOX_URL}/get",
+            params={
+                "Force1": "full",
+                "Force2": "full",
+                "GyroX": "full",
+                "GyroY": "full",
+                "GyroZ": "full",
+                "AccelX": "full",
+                "AccelY": "full",
+                "AccelZ": "full"
+            },
+            timeout=5
+        )
+
+        response.raise_for_status()
+
+        buffers = response.json()["buffer"]
+
+        sensor_data = {
+            "device_id": "SHOE-R-001",
+
+            # SWAPPED
+            "BoF": buffers["Force2"]["buffer"][-1],
+            "Heel": buffers["Force1"]["buffer"][-1],
+
+            "GyroX": buffers["GyroX"]["buffer"][-1],
+            "GyroY": buffers["GyroY"]["buffer"][-1],
+            "GyroZ": buffers["GyroZ"]["buffer"][-1],
+            "AccelX": buffers["AccelX"]["buffer"][-1],
+            "AccelY": buffers["AccelY"]["buffer"][-1],
+            "AccelZ": buffers["AccelZ"]["buffer"][-1]
+        }
+
+        api_response = requests.post(
+            API_URL,
+            json=sensor_data,
+            timeout=5
+        )
+
+        api_response.raise_for_status()
+
+        print(sensor_data)
+
+    except Exception as e:
+        print("Collector error:", e)
+        time.sleep(1)
