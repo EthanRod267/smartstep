@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shoe Telemetry</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">Shoe Telemetry</div>
+    <div class="topbar-right">
+      <div class="status" id="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Disconnected</span>
+      </div>
+      <button id="connectBtn">Connect device</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="readouts">
+      <div class="readout">
+        <div class="readout-label">Form rating</div>
+        <div class="readout-value"><span id="formRatingVal">--</span><span class="readout-unit">/ 100</span></div>
+      </div>
+      <div class="readout">
+        <div class="readout-label">Speed</div>
+        <div class="readout-value"><span id="speedVal">--</span><span class="readout-unit">m/s</span></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel panel-chart">
+        <div class="panel-header">
+          <h2>Speed over time</h2>
+          <span class="panel-meta">last 20 readings</span>
+        </div>
+        <canvas id="speedChart" height="220"></canvas>
+      </div>
+
+      <div class="panel panel-suggestions">
+        <div class="panel-header">
+          <h2>Suggestions</h2>
+        </div>
+        <ul id="suggestionsList" class="suggestions-list"></ul>
+      </div>
+    </section>
+
+    <section class="panel panel-log">
+      <div class="panel-header">
+        <h2>Reading log</h2>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Device</th>
+            <th>Form rating</th>
+            <th>Speed</th>
+          </tr>
+        </thead>
+        <tbody id="readingsBody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
