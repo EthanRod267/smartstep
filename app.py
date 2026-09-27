@@ -1,19 +1,19 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
 from datetime import datetime
+from typing import Optional, List
 
-from analysis import analyze  # <-- our separate analysis module
+from analysis import analyze  # unchanged from the Flask version
 
-# Load variables from .env
+# ---- Load environment variables ----
 load_dotenv()
 
-app = Flask(__name__, static_folder='static')
-CORS(app)  # allows your frontend JS to call this API
-
-# Connect to MongoDB
 mongo_uri = os.getenv("MONGODB_URI")
 if not mongo_uri:
     raise RuntimeError("MONGODB_URI not found. Did you create a .env file from .env.example?")
@@ -22,24 +22,39 @@ client = MongoClient(mongo_uri)
 db = client["shoe_data"]
 readings_collection = db["readings"]
 
+# ---- FastAPI app setup ----
+app = FastAPI()
 
-@app.route("/readings", methods=["POST"])
-def add_reading():
-    """
-    Accepts raw sensor data, runs it through analysis.py, and stores
-    both the raw values and the computed metrics. Expects JSON like:
-    {
-        "device_id": "shoe_left_01",
-        "pressure": 42.7,
-        "gyro": {"x": 0.12, "y": -0.03, "z": 1.01},
-        "frequency": 3.4
-    }
-    """
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "error", "message": "No JSON body received"}), 400
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # fine for a competition demo; tighten for production
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    metrics = analyze(data)  # -> {"form_rating": ..., "speed": ..., "suggestions": [...]}
+# Serve everything in static/ at /static/... (same URL pattern as the Flask version)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ---- Request/response models (this is the validation FastAPI adds for free) ----
+class Gyro(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
+class SensorReading(BaseModel):
+    device_id: str = "unknown"
+    pressure: Optional[float] = None
+    gyro: Optional[Gyro] = None
+    frequency: Optional[float] = None
+
+
+# ---- Routes ----
+@app.post("/readings", status_code=201)
+def add_reading(reading_in: SensorReading):
+    data = reading_in.dict()
+    metrics = analyze(data)  # same analysis.py, no changes needed
 
     reading = {
         "device_id": data.get("device_id", "unknown"),
@@ -53,37 +68,32 @@ def add_reading():
     }
 
     result = readings_collection.insert_one(reading)
-    return jsonify({"status": "success", "id": str(result.inserted_id)}), 201
+    return {"status": "success", "id": str(result.inserted_id)}
 
 
-@app.route("/readings", methods=["GET"])
-def get_readings():
-    """Return the most recent readings, newest first.
-    Optional query param: ?limit=50
-    """
-    limit = int(request.args.get("limit", 50))
+@app.get("/readings")
+def get_readings(limit: int = 50):
     readings = list(
         readings_collection.find().sort("timestamp", -1).limit(limit)
     )
     for r in readings:
         r["_id"] = str(r["_id"])
+    return readings
 
-    return jsonify(readings), 200
 
-
-@app.route("/health", methods=["GET"])
+@app.get("/health")
 def health_check():
     try:
         client.admin.command("ping")
-        return jsonify({"status": "ok", "mongodb": "connected"}), 200
+        return {"status": "ok", "mongodb": "connected"}
     except Exception as e:
-        return jsonify({"status": "error", "mongodb": str(e)}), 500
+        raise HTTPException(status_code=500, detail=f"mongodb error: {e}")
 
 
-@app.route("/")
+@app.get("/")
 def index():
-    return app.send_static_file("index.html")
+    return FileResponse("static/index.html")
 
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+# No if __name__ == "__main__" block needed —
+# FastAPI apps are run with uvicorn (see instructions below).
